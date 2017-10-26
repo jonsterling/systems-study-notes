@@ -1,0 +1,279 @@
+\documentclass{article}
+
+\usepackage{xparse}
+\usepackage[tt=false]{libertine}
+\usepackage{mathpartir}
+\usepackage{amssymb}
+
+\NewDocumentCommand\Emph{m}{\textbf{\textit{#1}}}
+
+\title{\Emph{Systems} Study Notes}
+\author{Jon Sterling}
+
+\begin{document}
+\maketitle
+
+
+\section{Implementing RPC}
+
+\paragraph{How does RPC work?}
+There are several components: user runtime, user stub, server runtime,
+server stub.
+
+\begin{enumerate}
+\item Make a local call to the user stub
+\item The user stub marshalls this request into appropriate
+  parameters, which it passes to the user RPC runtime instance.
+\item The runtime then sends this request along the network to the
+  remote machine, where it is intercepted by the server runtime
+  instance and handed to the server stub
+\item The server stub marshalls the request into a local call on the
+  server.
+\end{enumerate}
+
+\paragraph{Advantages and disadvantages}
+
+\begin{enumerate}
+\item Provides a very nice programming abstraction
+\item RPC is completely synchronous, so it may not be right for some applications
+\item It is slower than local calls
+\item The semantics of exceptions are different from local calls
+\end{enumerate}
+
+\section{Using Threads in Interactive Systems: A Case Study}
+
+\begin{description}
+\item[Defer work] For forking off jobs, like printing or network requests
+\item[Pumps] For instance, bounded buffers or external devices;
+  \Emph{slack processes} are an example, which process and consolidate
+  a stream of data to decrease the number of items processed
+  downstream
+\item[Sleepers] Threads which wake up momentarily to perform a single
+  action, e.g.\ timeouts.
+\item[Deadlock avoiders] In cases where a lock hierarchy can change
+  dynamically depending on runtime conditions, it can be very
+  difficult to release a subset of locks. Sometimes it is easier to
+  release all locks held, and then acquire them all in order where
+  needed. \Emph{Deadlock avoiders} are a means to accomplish this.
+\item[Task rejuvenators] Threads which monitor processes for errors
+  and restart them.
+\item[Serializers] For instance, a queue and worker.
+\item[Encapsulated fork] A module which implements the general case of
+  a particular use of threads.
+\end{description}
+
+\section{Time, Clocks and the Ordering of Events in a Distributed System}
+
+The partial order on events is the least relation closed under the
+following rules:
+\begin{mathpar}
+  \inferrule{
+    P\Vdash{}a\to{}b
+  }{
+    a\to{}b
+  }
+  \and
+  \inferrule{
+    a = P.\mathsf{send} (Q,m)
+    \\
+    b = Q.\mathsf{recv} (P, m)
+  }{
+    a\to{}b
+  }
+  \and
+  \inferrule{
+    a\to{}b
+    \\
+    b\to{}c
+  }{
+    a\to{}c
+  }
+\end{mathpar}
+
+The total order is given by imposing an order on processes. \Emph{The
+  total order is useful for solving the \underline{mutual exclusion}
+  problem.}
+
+\section{MapReduce and Spark}
+
+MapReduce works in the following way:
+\begin{enumerate}
+\item You define a \emph{map} function which decomposes key-value
+  pairs into sets of intermediate key-value pairs.
+\item Then you define a \emph{reduce} function which combines values
+  that share the same key.
+\end{enumerate}
+
+Spark aims to extend the MapReduce paradigm to support saving and
+reusing intermediate data; in MapReduce, to accomplish this you would
+have to explicitly include a task to write your intermediate data to
+distributed storage. Spark uses RDDs (``Resiliant Distributed
+Databases''), which are readonly partitioned data storage, to achieve
+this.
+
+\Emph{This is important for the performance of iterative algorithms.}
+
+\section{Naiad: A Timely Dataflow System}
+
+Naiad differs from MapReduce in that it supports incremental and
+iterative computation over cyclic data (graphs). This seems important
+for machine learning.
+
+\paragraph{Timely dataflow} Structured loops and stateful vertices
+without global coordination; attaches timestamps in the
+graph. Vertices are notified once they have received all records for a
+given round of input or loop iteration.
+
+To achieve \Emph{low latency}, uses asynchronous updates and
+fine-grained computational dependencies.
+
+
+\section{From Shared Virtual Memory to Parameter Servers}
+
+\paragraph{Memory coherence} Reads shall always get the latest-written
+value.
+
+\subsection{Centralized Manager}
+
+The centralized manager is a data structure which has some procedures
+that provide mutually exclusive access to some resources. It has a
+table that maps each page to its \Emph{owning process}, the collection
+of process which have (read-only) \Emph{copies} of it, and the
+\Emph{lock}, which is used for synchronization.
+
+Each process has a \texttt{PTable}, with \Emph{access} and \Emph{lock}
+fields for each page.
+
+\subsection{Distributed Manager}
+
+The distributed manager divides page management among the
+processes. There are several kinds.
+
+\paragraph{Fixed distributed manager} In this model, each process is
+assigned a predetermined subset of pages to manage. The problem is
+that it is difficult to choose this set. \Emph{Better than centralized
+  manager for parallel programs with a lot of page faults.}
+
+\paragraph{Broadcast distributed manager} In this model, each process
+manages the pages that it owns. When page-faulting, the process
+broadcasts into the network to find the real owner of a
+page. \Emph{Performs badly for parallel programs with high read/write
+  page faults.}
+
+\paragraph{Dynamic distributed manager} Each process manges the pages
+that it owns, but it stores a map of the ``probable owner'' of each
+page. This obeys the invariant that every chain of probable owners
+ends with the real owner.
+
+\section{Paxos}
+
+Paxos is based on a two-phase protocol.
+
+\begin{enumerate}
+\item \Emph{prepare}
+  \begin{itemize}
+  \item The proposer sends a \texttt{prepare} request with a
+    sequence number $n$ to a majority of acceptors.
+  \item If an acceptor receives a \texttt{prepare} request with a
+    sequence number $n$ which is greater than any sequence number it
+    has previously acknowledged, then it promises not to accept any
+    lower sequence number than $n$ ever again, and responds with the
+    highest-numbered proposal that it has so-far accepted.
+  \end{itemize}
+\item \Emph{accept}
+  \begin{itemize}
+  \item If the proposer receives a response from a majority of
+    acceptors, then it sends the \texttt{accept} request $(n,v)$ to
+    these acceptors, where $v$ is the value of the highest-numbered
+    proposal among the responses from the acceptors.
+  \item If an acceptor receives an \texttt{accept} request for a
+    proposal numbered $n$, it accepts the proposal unless it has
+    already responded to a proposal with a higher sequence number.
+  \end{itemize}
+\end{enumerate}
+
+\paragraph{Multi-paxos} Multi-paxos involves combining multiple
+instances of paxos to reach consensus on a sequence of values (a log);
+multi-paxos can be viewed as implementing a distributed state
+machine. As an optimization, elect a leader rather than having
+multiple proposers (to avoid competing proposals).
+
+\section{Dynamo}
+
+Dynamo is a distributed key-value store.
+
+\paragraph{CAP Theorem} Choose two of \Emph{consistency},
+\Emph{availability} and \Emph{partitioning}. Since there will always
+have to be partitioning, you really have to simply choose between
+availability and consistency. Dynamo chooses availability and adopts
+an \Emph{eventual consistency} model. Conflicts are resolved by
+application clients.
+
+\paragraph{Sloppy quorum} In a sloppy quorum, reads and writes are
+performed on the first $n$ \Emph{healthy} nodes on the preferred list
+(rather than the first $n$ nodes). This is done with a \Emph{hinted
+  handoff}, which means that when a node is unhealthy, the message is
+sent instead to the next healthy mode, but along with a hint that it
+was meant for a particular node. Then if the unhealthy node comes back
+to life, the healthy node is supposed to forward the hinted message
+back to it.
+
+\paragraph{Consistent hashing} An approach to distributed hash tables
+which minimizes the amount of remapping when resizing to just $K/n$,
+where $K$ is the number of keys and $n$ is the number of slots. This
+is implemented using a \Emph{ring buffer}
+
+\section{RAID:\@ redundant array of independent disks}
+
+\begin{description}
+\item[RAID 0] disk striping: no protection
+\item[RAID 1] mirroring: no data loss if drive fails
+\item[RAID 2,3] (bad, nobody uses)
+\item[RAID 4] parity disk: but the dedicated parity disk is a bottleneck
+\item[RAID 5] rotating parity disk: resolve the bottleneck by keeping
+  the parity info in all the disks rather than in a dedicated disk
+\end{description}
+
+\section{LFS:\@ log-structured file system}
+
+\begin{description}
+\item[inode] locates file blocks, and contains metadata
+\item[inode map] locates inodes in the log
+\item[indirect block] locates blocks of large files
+\item[segment summary] identifies the contents of a segment (file
+  numbres, block offsets)
+\item[segment usage table] counts the live bytes still left in
+  segments, stores last write time for data in segments
+\item[superblock] holds static configuration info such as the number
+  of segments and segment size
+\item[checkpoint region] locates blocks of inode map and segment usage
+  table, identifies last checkpoint in log. \Emph{stored in fixed
+    location, not in log.}
+\item[directory change log] records directory operations to maintain
+  consistency of reference counts in inodes
+\end{description}
+
+\section{AFS:\@ Andrew File System}
+Scale and performance in a distributed file system.
+
+\paragraph{Architecture}
+Two services (client \Emph{Venus}, server \Emph{Vice}). \Emph{Vice} is
+a collection of servers where the files reside. \Emph{Venus}
+intercepts the filesystem calls and caches files from \Emph{Vices},
+storing modified copies of files back in the servers they came
+from. \Emph{Venus} only contacts \Emph{Vice} when a file is opened or
+closed; reading adn writing individual bytes of a file are performed
+on the cache, bypassing \Emph{Venus}.
+
+\subsection*{Key ideas}
+\begin{itemize}
+\item whole-file caching, flush on close; when opening cached files,
+  check with \Emph{Vice} to see if file needs update
+\item only contact \Emph{Vice} at open and close, enables scaling
+\item optimizations: use callbacks instead of checking (polling) to
+  see if file needs update; use file identifier to reduce path
+  traversal overhead.
+\item consistency model approximately like GitHub.
+\end{itemize}
+
+\end{document}
